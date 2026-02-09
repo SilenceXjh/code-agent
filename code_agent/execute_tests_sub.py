@@ -95,7 +95,6 @@ def categorize_error(error_msg: str) -> str:
 
 def execute_all_tests(
     test_dir: str,
-    metadata_path: str,
     output_path: str = "test_results.jsonl",
     summary_path: str = "test_summary.json",
     timeout: int = 5
@@ -126,12 +125,6 @@ def execute_all_tests(
     print(f"⏱️  超时设置: {timeout}秒")
     print()
     
-    # 加载元数据
-    print("加载元数据...")
-    metadata = load_metadata(metadata_path)
-    print(f"共加载 {len(metadata)} 个任务")
-    print()
-    
     # 清空结果文件
     if os.path.exists(output_path):
         os.remove(output_path)
@@ -147,21 +140,12 @@ def execute_all_tests(
     print("开始执行测试...")
     runner = DockerTestRunner(test_dir=test_dir)
     try:
-        for meta in tqdm(metadata, desc="测试进度"):
-            task_id = meta['task_id']
-            test_file = meta['test_file']
+        for file_name in tqdm(os.listdir(test_dir), desc="测试进度"):
             
-            # 检查文件是否存在
-            if not os.path.exists(test_file):
-                is_passed = False
-                error_msg = f"测试文件不存在: {test_file}"
-                elapsed_time = 0
-            else:
-                # 执行测试
-                file_name = os.path.basename(test_file) 
-                is_passed, error_msg, elapsed_time = runner.run_test(
-                    file_name, timeout
-                )  
+            # 执行测试
+            is_passed, error_msg, elapsed_time = runner.run_test(
+                file_name, timeout
+            )  
             
             # 更新统计
             if is_passed:
@@ -175,14 +159,14 @@ def execute_all_tests(
             
             # 保存结果
             result = {
-                'task_id': task_id,
-                'test_file': test_file,
+                #'task_id': task_id,
+                'test_file': file_name,
                 'passed': is_passed,
                 'error': error_msg if not is_passed else "",
                 'error_type': categorize_error(error_msg) if not is_passed else "",
                 'execution_time': round(elapsed_time, 3),
-                'prompt': meta.get('prompt', ''),
-                'generated_code': meta.get('generated_code', '')
+                #'prompt': meta.get('prompt', ''),
+                #'generated_code': meta.get('generated_code', '')
             }
             results.append(result)
             
@@ -244,11 +228,9 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='MBPP测试执行器')
-    data_dir = "/data0/xjh/code-agent/data/qwen-coder-7B-test-first"
+    data_dir = "/data0/xjh/code-agent/data/qwen-coder-1.5B-test-first"
     parser.add_argument('--test-dir', default=f'{data_dir}/generations',
                         help='测试文件目录')
-    parser.add_argument('--metadata', default=f'{data_dir}/generation_metadata.jsonl',
-                        help='元数据文件路径')
     parser.add_argument('--output', default=f'{data_dir}/test_results.jsonl',
                         help='结果输出路径')
     parser.add_argument('--summary', default=f'{data_dir}/test_summary.json',
@@ -259,10 +241,6 @@ def main():
     args = parser.parse_args()
     
     # 检查文件
-    if not os.path.exists(args.metadata):
-        print(f"错误: 找不到元数据文件 {args.metadata}")
-        print("请先运行 step1_generate_code.py 生成代码")
-        return
     
     if not os.path.exists(args.test_dir):
         print(f"错误: 找不到测试目录 {args.test_dir}")
@@ -271,7 +249,6 @@ def main():
     # 执行测试
     execute_all_tests(
         args.test_dir,
-        args.metadata,
         args.output,
         args.summary,
         args.timeout

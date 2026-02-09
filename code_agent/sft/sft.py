@@ -24,20 +24,29 @@ from dataclasses import dataclass
 import os
 
 
-def extract_function_signature(code: str) -> str:
-    """
-    从代码中提取函数签名
+def extract_function_name_from_tests(test_list: List):
+    """从测试用例中提取函数名"""
+    if not test_list:
+        return ""
     
-    Args:
-        code: Python代码字符串
+    # 取第一个测试用例
+    first_test = test_list[0]
     
-    Returns:
-        函数签名字符串,如 "def similar_elements(test_tup1, test_tup2):"
-    """
-    lines = code.strip().split('\n')
+    # 匹配 assert function_name(
+    match = re.search(r'assert\s+(\w+)\s*\(', first_test)
+    if match:
+        return match.group(1)
+    
+    return ""
+
+def extract_function_signature(reference_code: str, test_list: List) -> str:
+    """从参考代码中提取函数签名"""
+    func_name = extract_function_name_from_tests(test_list)
+    func_name = func_name.strip()
+    lines = reference_code.strip().split('\n')
     for line in lines:
-        # line = line.strip()
-        if line.startswith('def '):
+        line = line.strip()
+        if line.startswith('def ') and func_name in line:
             return line
     return ""
 
@@ -73,7 +82,7 @@ def format_prompt_with_signature(example: Dict) -> tuple:
     code = example['code']
     
     # 提取函数签名
-    signature = extract_function_signature(code)
+    signature = extract_function_signature(code, example['test_list'])
     
     if signature:
         # 如果成功提取到签名,将其加入prompt
@@ -120,11 +129,12 @@ def preprocess_function(examples: Dict, tokenizer, max_length: int = 512) -> Dic
     labels_list = []
     attention_mask_list = []
     
-    for text, code in zip(examples['text'], examples['code']):
+    for text, code, test_list in zip(examples['text'], examples['code'], examples['test_list']):
         # 格式化prompt
         instruction_text, full_text = format_prompt_with_signature({
             'text': text,
-            'code': code
+            'code': code,
+            'test_list': test_list
         })
         
         # Tokenize instruction部分(包括函数签名,但不包括response内容)
@@ -205,7 +215,7 @@ class DataCollatorForSupervisedDataset:
 def main():
     # ==================== 配置参数 ====================
     MBPP_FILE = "mbpp.jsonl"  # MBPP数据集路径
-    MODEL_NAME = "Qwen/Qwen2.5-Coder-1.5B"  # 模型名称
+    MODEL_NAME = "/data1/model/qwen/Qwen/Qwen2.5-Coder-1.5B/"  # 模型名称
     OUTPUT_DIR = "./mbpp_sft_output"  # 输出目录
     
     # 数据划分
@@ -230,7 +240,7 @@ def main():
     print("="*80)
     sample = train_data[0]
     print(f"Sample code:\n{sample['code']}\n")
-    signature = extract_function_signature(sample['code'])
+    signature = extract_function_signature(sample['code'], sample['test_list'])
     print(f"Extracted signature: {signature}")
     instruction_text, full_text = format_prompt_with_signature(sample)
     print(f"\nFormatted prompt:\n{full_text}")
@@ -259,6 +269,7 @@ def main():
         torch_dtype=torch.bfloat16,
         device_map="auto",
     )
+    model.enable_input_require_grads()
     
     # ==================== 配置LoRA ====================
     print("Configuring LoRA...")

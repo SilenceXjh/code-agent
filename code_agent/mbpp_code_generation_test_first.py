@@ -7,32 +7,74 @@ MBPP代码生成器
 import json
 import os
 from typing import Dict, List
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from tqdm import tqdm
-import re
 
 from utils.mbpp_utils import create_test_file, extract_function_code, extract_function_signature, load_mbpp_data, load_model
 
 
-def generate_code(tokenizer, model, prompt: str, function_signature, max_new_tokens: int = 512) -> str:
-    """使用模型生成代码"""
-    
-    if function_signature:
-        full_prompt = f"""You are an expert Python programmer. Write a Python function based on the following description.
+def generate_tests(tokenizer, model, prompt: str, function_signature: str, test_list: List, max_new_tokens: int = 512):
+    """使用模型生成测试用例"""
 
+    example_test = test_list[0]
+    
+    full_prompt = f"""You are given a programming problem and one example test case.
+
+Your task is to generate additional valid test cases for this problem.
+
+Requirements:
+1. The test cases must follow the same format as the example test case.
+2. Do NOT repeat the given example test case.
+3. The generated test cases should be correct according to the problem description.
+4. Try to cover different cases (e.g., order differences, overlapping elements, no overlap, full overlap).
+5. Only output the test cases. Do not include explanations.
+
+Problem description:
 {prompt}
 
-Use this function signature:
+Function signature:
 {function_signature}
 
-Provide only the Python function code without any explanation."""
+Example test case:
+{example_test}
+
+Generate 3-5 new test cases.
+"""
+    
+    inputs = tokenizer(full_prompt, return_tensors="pt").to(model.device)
+    
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=0.2,
+            top_p=0.95,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id
+        )
+    
+    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    if full_prompt in generated_text:
+        res = generated_text.split(full_prompt)[-1].strip()
     else:
-        full_prompt = f"""You are an expert Python programmer. Write a Python function based on the following description.
+        res = generated_text.strip()
+    
+    return full_prompt, res
+
+
+def generate_code(tokenizer, model, prompt: str, gen_tests: str, max_new_tokens: int = 512):
+    """使用模型生成代码"""
+    
+    full_prompt = f"""You are an expert Python programmer. Write a Python function based on the following description.
 
 {prompt}
 
+Your python function must pass the following test cases:
+{gen_tests}
+
 Provide only the Python function code without any explanation."""
+    
     
     inputs = tokenizer(full_prompt, return_tensors="pt").to(model.device)
     
@@ -61,8 +103,7 @@ def generate_all_tasks(
     data_path: str,
     output_dir: str,
     metadata_path: str,
-    max_samples: int = None,
-    adapter_path: str = None
+    max_samples: int = None
 ):
     """
     生成所有任务的代码文件
@@ -78,7 +119,7 @@ def generate_all_tasks(
     print(f"共加载 {len(data)} 个样本")
     
     # 加载模型
-    tokenizer, model = load_model(model_path, adapter_path)
+    tokenizer, model = load_model(model_path)
     
     # 生成代码
     print(f"\n开始生成代码...")
@@ -101,7 +142,9 @@ def generate_all_tasks(
         
         # 生成代码
         function_signature = extract_function_signature(reference_code, test_list)
-        full_prompt, generated_code = generate_code(tokenizer, model, text, function_signature)
+        test_gen_prompt, gen_tests = generate_tests(tokenizer, model, text, function_signature, test_list)
+        gen_tests = extract_function_code(gen_tests)
+        code_gen_prompt, generated_code = generate_code(tokenizer, model, text, gen_tests)
         extracted_code = extract_function_code(generated_code, function_signature)
         
         # 创建测试文件
@@ -118,7 +161,9 @@ def generate_all_tasks(
         # 保存元数据
         metadata = {
             'task_id': task_id,
-            'prompt': full_prompt,
+            'test_gen_prompt': test_gen_prompt,
+            'gen_tests': gen_tests,
+            'code_gen_prompt': code_gen_prompt,
             'reference_code': reference_code,
             'generated_code': extracted_code,
             'test_file': filepath,
@@ -140,12 +185,11 @@ def generate_all_tasks(
 
 def main():
     # 配置参数
-    MODEL_PATH = os.getenv('MODEL_PATH', "/data1/model/qwen/Qwen/Qwen2.5-Coder-1.5B")
+    MODEL_PATH = os.getenv('MODEL_PATH', "/data1/model/qwen/Qwen/Qwen2.5-Coder-7B")
     DATA_PATH = os.getenv('DATA_PATH', "/data0/xjh/code-agent/mbpp.jsonl")
-    OUTPUT_DIR = os.getenv('OUTPUT_DIR', "/data0/xjh/code-agent/data/qwen-coder-1.5B-sft2/generations")
-    METADATA_PATH = os.getenv('METADATA_PATH', "/data0/xjh/code-agent/data/qwen-coder-1.5B-sft2/generation_metadata.jsonl")
+    OUTPUT_DIR = os.getenv('OUTPUT_DIR', "/data0/xjh/code-agent/data/qwen-coder-7B-test-first/generations")
+    METADATA_PATH = os.getenv('METADATA_PATH', "/data0/xjh/code-agent/data/qwen-coder-7B-test-first/generation_metadata.jsonl")
     MAX_SAMPLES = os.getenv('MAX_SAMPLES', None)
-    ADAPTER_PATH = "/data0/xjh/code-agent/mbpp_sft_output/final_model"
     
     if MAX_SAMPLES:
         MAX_SAMPLES = int(MAX_SAMPLES)
@@ -160,7 +204,7 @@ def main():
         return
     
     # 生成代码
-    generate_all_tasks(MODEL_PATH, DATA_PATH, OUTPUT_DIR, METADATA_PATH, MAX_SAMPLES, ADAPTER_PATH)
+    generate_all_tasks(MODEL_PATH, DATA_PATH, OUTPUT_DIR, METADATA_PATH, MAX_SAMPLES)
 
 
 if __name__ == "__main__":
