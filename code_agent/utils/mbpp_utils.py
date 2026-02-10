@@ -129,3 +129,12 @@ if __name__ == "__main__":
         f.write(file_content)
     
     return filepath
+
+
+def load_metadata(metadata_path: str) -> List[Dict]:
+    """加载生成元数据"""
+    metadata = []
+    with open(metadata_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            metadata.append(json.loads(line.strip()))
+    return metadata

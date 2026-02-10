@@ -13,15 +13,7 @@ from typing import Dict, List, Tuple
 from pathlib import Path
 from tqdm import tqdm
 from collections import defaultdict
-
-
-def load_metadata(metadata_path: str) -> List[Dict]:
-    """加载生成元数据"""
-    metadata = []
-    with open(metadata_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            metadata.append(json.loads(line.strip()))
-    return metadata
+from utils.mbpp_utils import load_metadata
 
 
 class DockerTestRunner:
