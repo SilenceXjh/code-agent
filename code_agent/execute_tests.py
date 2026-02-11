@@ -7,10 +7,7 @@ MBPP测试执行器
 import json
 import os
 import subprocess
-import tempfile
 import time
-from typing import Dict, List, Tuple
-from pathlib import Path
 from tqdm import tqdm
 from collections import defaultdict
 from utils.mbpp_utils import load_metadata
@@ -236,7 +233,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='MBPP测试执行器')
-    data_dir = "/data0/xjh/code-agent/data/qwen-coder-7B-test-first"
+    data_dir = "/data0/xjh/code-agent/data/deepseek-chat-cot"
     parser.add_argument('--test-dir', default=f'{data_dir}/generations',
                         help='测试文件目录')
     parser.add_argument('--metadata', default=f'{data_dir}/generation_metadata.jsonl',
