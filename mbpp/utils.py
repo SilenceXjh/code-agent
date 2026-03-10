@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Dict, List
 
 import torch
@@ -79,7 +80,7 @@ def model_generate(prompt: str, model, tokenizer, is_instruct=True, max_new_toke
             generated_text = generated_text.split(prompt)[-1].strip()
 
         return generated_text
-    
+
 
 def ds_api_generate(prompt: str, client: OpenAI, max_new_tokens=1024):
     response = client.chat.completions.create(
@@ -109,16 +110,31 @@ def extract_python_code(generated_text: str) -> str:
     return code
 
 
-def get_testcases(orinigal_test: str, entry_point: str):
-    testcases = []
-    test_code_lines = orinigal_test.split("\n")
-    for line in test_code_lines:
-        line = line.strip()
-        if "assert" in line:
-            testcase = line.replace("candidate", entry_point)
-            testcases.append(testcase)
+def extract_function_name_from_tests(test_list: List):
+    """从测试用例中提取函数名"""
+    if not test_list:
+        return None
+    
+    # 取第一个测试用例
+    first_test = test_list[0]
+    
+    # 匹配 assert function_name(
+    match = re.search(r'assert\s+(\w+)\s*\(', first_test)
+    if match:
+        return match.group(1)
+    
+    return ""
 
-    return testcases
+def extract_function_signature(reference_code: str, test_list: List) -> str:
+    """从参考代码中提取函数签名"""
+    func_name = extract_function_name_from_tests(test_list)
+    func_name = func_name.strip()
+    lines = reference_code.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        if line.startswith('def ') and func_name in line:
+            return line
+    return ""
 
 
 def construct_file_content(code_str: str, testcases: List):

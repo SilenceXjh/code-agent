@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import List
-from utils import load_jsonl_data, get_testcases, construct_file_content
+from utils import load_jsonl_data, construct_file_content
 
 DOCKER_IMAGE = "python:3.10-slim"
 
@@ -73,12 +73,11 @@ def evaluate(data, code_dir):
         total += 1
 
         task_id = sample["task_id"]
-        task_id = task_id.replace('/', '_')
 
         with open(os.path.join(code_dir, f"{task_id}.py"), "r") as f:
             code = f.read()
         
-        testcases = get_testcases(sample["test"], sample["entry_point"])
+        testcases = sample["test_list"]
         success = run_single_sample(code, testcases)
         if success:
             right += 1
@@ -87,11 +86,34 @@ def evaluate(data, code_dir):
     print("right:", right)
 
 
+def compare(data, code_dir1, code_dir2):
+    diff = []
+
+    for sample in data:
+
+        task_id = sample["task_id"]
+
+        with open(os.path.join(code_dir1, f"{task_id}.py"), "r") as f:
+            code1 = f.read()
+        with open(os.path.join(code_dir2, f"{task_id}.py"), "r") as f:
+            code2 = f.read()
+        
+        testcases = sample["test_list"]
+        success1 = run_single_sample(code1, testcases)
+        success2 = run_single_sample(code2, testcases)
+
+        if not success1 and success2:
+            diff.append(task_id)
+
+    print(len(diff))
+    print(diff)
+
 def main():
-    data_path = "/data0/xjh/code-agent/HumanEval.jsonl"
+    data_path = "/data0/xjh/code-agent/mbpp.jsonl"
     data = load_jsonl_data(data_path)
-    code_dir = "/data0/xjh/code-agent/human_eval/ds-test-first"
-    evaluate(data, code_dir)
+    code_dir1 = "/data0/xjh/code-agent/mbpp/ds"
+    code_dir2 = "/data0/xjh/code-agent/mbpp/ds-test-first"
+    compare(data, code_dir1, code_dir2)
 
 if __name__ == "__main__":
     main()

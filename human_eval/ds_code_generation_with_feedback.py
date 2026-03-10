@@ -1,11 +1,24 @@
 import os
+from pathlib import Path
 import subprocess
 import tempfile
-from pathlib import Path
-from typing import List
-from utils import load_jsonl_data, get_testcases, construct_file_content
+
+from openai import OpenAI
+from utils import load_jsonl_data, ds_api_generate, extract_python_code, construct_file_content, get_testcases
+
+data_path = "/data0/xjh/code-agent/HumanEval.jsonl"
+output_path = "/data0/xjh/code-agent/human_eval/ds-with-feedback"
+
+code_path = "/data0/xjh/code-agent/human_eval/ds-test-first"
 
 DOCKER_IMAGE = "python:3.10-slim"
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+data = load_jsonl_data(data_path)
+client = OpenAI(api_key=os.environ.get('DEEPSEEK_API_KEY'), base_url="https://api.deepseek.com")
+
+os.makedirs(output_path, exist_ok=True)
 
 
 def run_single_sample(code_str, testcases):
@@ -45,7 +58,7 @@ def run_single_sample(code_str, testcases):
 
         except Exception as e:
             print(e)
-            return False
+            return False, str(e)
 
         finally:
             # 4. 清理：无论成功失败，都删除容器
@@ -54,44 +67,58 @@ def run_single_sample(code_str, testcases):
     if result.returncode != 0:
         print("执行失败:", result.stderr)
         print("stdout:", result.stdout)
-        return False
+        return False, result.stdout
 
     if "ALL_TESTS_PASSED" in result.stdout:
         print("测试通过")
-        return True
+        return True, None
     
     print("测试失败:", result.stdout)
-    return False
+    return False, result.stdout
 
+total = 0
+right = 0
+repaired = [0,0,0]
 
-def evaluate(data, code_dir):
+for sample in data:
+    total += 1
+    task_id = sample["task_id"]
+    task_id = task_id.replace('/', '_')
+    
+    with open(os.path.join(code_path, f"{task_id}.py"), "r") as f:
+        code = f.read()
 
-    total = 0
-    right = 0
+    testcases = get_testcases(sample["test"], sample["entry_point"])
 
-    for sample in data:
-        total += 1
+    success, message = run_single_sample(code, testcases)
+    if success:
+        right += 1
+    else:
+        for i in range(3):
+            full_prompt = f"""Please fix a python function base on the function description, current code and test feedback.
 
-        task_id = sample["task_id"]
-        task_id = task_id.replace('/', '_')
-
-        with open(os.path.join(code_dir, f"{task_id}.py"), "r") as f:
-            code = f.read()
+Function Description:
+{sample["prompt"]}
         
-        testcases = get_testcases(sample["test"], sample["entry_point"])
-        success = run_single_sample(code, testcases)
-        if success:
-            right += 1
+Current code:
+```python
+{code}
+```
 
-    print("total:", total)
-    print("right:", right)
+Test feedBack: 
+{message}
 
+Provide only the fixed Python function code without any explanation."""
+            
+            generated_text = ds_api_generate(full_prompt, client)
+            code = extract_python_code(generated_text)
+            ok, message = run_single_sample(code, testcases)
+            if ok:
+                repaired[i] += 1
+                with open(os.path.join(output_path, f"{task_id}.py"), "w") as f:
+                    f.write(code)
+                break
 
-def main():
-    data_path = "/data0/xjh/code-agent/HumanEval.jsonl"
-    data = load_jsonl_data(data_path)
-    code_dir = "/data0/xjh/code-agent/human_eval/ds-test-first"
-    evaluate(data, code_dir)
-
-if __name__ == "__main__":
-    main()
+print("total:", total)
+print("right:", right)
+print("repaired:", repaired)

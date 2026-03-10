@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import List
-from utils import load_jsonl_data, get_testcases, construct_file_content
+from utils import load_jsonl_data, construct_file_content
 
 DOCKER_IMAGE = "python:3.10-slim"
 
@@ -73,12 +73,11 @@ def evaluate(data, code_dir):
         total += 1
 
         task_id = sample["task_id"]
-        task_id = task_id.replace('/', '_')
 
         with open(os.path.join(code_dir, f"{task_id}.py"), "r") as f:
             code = f.read()
         
-        testcases = get_testcases(sample["test"], sample["entry_point"])
+        testcases = sample["test_list"]
         success = run_single_sample(code, testcases)
         if success:
             right += 1
@@ -88,9 +87,9 @@ def evaluate(data, code_dir):
 
 
 def main():
-    data_path = "/data0/xjh/code-agent/HumanEval.jsonl"
+    data_path = "/data0/xjh/code-agent/mbpp.jsonl"
     data = load_jsonl_data(data_path)
-    code_dir = "/data0/xjh/code-agent/human_eval/ds-test-first"
+    code_dir = "/data0/xjh/code-agent/mbpp/qwen-7B-test-first-1"
     evaluate(data, code_dir)
 
 if __name__ == "__main__":
